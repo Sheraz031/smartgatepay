@@ -1,49 +1,83 @@
 import jwt from 'jsonwebtoken';
 import Logger from '../utils/logger.js';
+import paymentGatewayModel from '../models/paymentGatewayModel.js';
 
-/**
- * userAuth middleware:
- * - Checks token in cookie (`token`) OR `Authorization: Bearer ...` header
- * - Verifies JWT using your `JWT_SECRET`
- * - Attaches `userId` and `role` to `req.body`
- */
 const userAuth = async (req, res, next) => {
-  let token = req.cookies.token;
-
-  // If no cookie, try Authorization header
-  if (!token && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
-    token = req.headers.authorization.split(' ')[1];
-  }
+  const { token } = req.cookies;
 
   if (!token) {
-    Logger.info('❌ Not Authorized. No token found (cookie or header)');
-    return res.status(401).json({
+    Logger.info('Not Authorized. No token found!');
+    return res.json({
       success: false,
-      message: 'Not Authorized. Please log in again.',
+      message: 'Not Authorized. Logged In Again',
     });
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const tokenDecode = jwt.verify(token, process.env.JWT_SECRET);
 
-    if (decoded && decoded.id) {
-      req.body.userId = decoded.id;
-      req.body.role = decoded.role;
-      next();
+    if (tokenDecode.id) {
+      req.body.userId = tokenDecode.id;
+      req.body.role = tokenDecode.role;
     } else {
-      Logger.info('❌ Not Authorized. JWT verification failed — no ID.');
-      return res.status(401).json({
+      Logger.info('Not Authorized. JWT verification issue!');
+      return res.json({
         success: false,
-        message: 'Not Authorized. Invalid token payload.',
+        message: 'Not Authorized. JWT verification issue, Logged In Again',
       });
     }
+
+    next();
   } catch (error) {
-    Logger.warn('❌ Invalid JWT token.', error);
+    Logger.warn('Not Authorized. Invalid JWT token!');
+    res.json({ success: false, message: error.message });
+  }
+};
+
+const checkApiToken = async (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const bearerToken =
+    authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+
+  if (!bearerToken) {
     return res.status(401).json({
       success: false,
-      message: 'Unauthorized. Invalid or expired token.',
+      message: 'Not Authorized. API token is missing.',
+    });
+  }
+
+  try {
+    const gateway = await paymentGatewayModel.findOne({ apiKey: bearerToken });
+
+    if (!gateway) {
+      Logger.info('Not Authorized. Invalid API token.');
+      return res.status(401).json({
+        success: false,
+        message: 'Not Authorized. Invalid API token.',
+      });
+    }
+
+    if (gateway.status === 'inactive') {
+      Logger.warn('Gateway access denied - inactive status', {
+        gatewayId: gateway._id,
+        gatewayName: gateway.name,
+      });
+      return res.status(403).json({
+        success: false,
+        message:
+          'Gateway is currently inactive. Please contact support to activate your payment gateway.',
+      });
+    }
+
+    req.body.gateway = gateway;
+    return next();
+  } catch (error) {
+    Logger.error('Error during API token validation:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal Server Error. Please try again later.',
     });
   }
 };
 
-export { userAuth };
+export { userAuth, checkApiToken };
