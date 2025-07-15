@@ -20,16 +20,16 @@ const userAuth = async (req, res, next) => {
       req.body.userId = tokenDecode.id;
       req.body.role = tokenDecode.role;
     } else {
-      Logger.info('Not Authorized. jwt verification issue!');
+      Logger.info('Not Authorized. JWT verification issue!');
       return res.json({
         success: false,
-        message: 'Not Authorized. Logged In Again',
+        message: 'Not Authorized. JWT verification issue, Logged In Again',
       });
     }
 
     next();
   } catch (error) {
-    Logger.warn('Not Authorized. Invalid jwt token!');
+    Logger.warn('Not Authorized. Invalid JWT token!');
     res.json({ success: false, message: error.message });
   }
 };
